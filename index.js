@@ -10,72 +10,71 @@ app.use(express.json());
 
 let bd = mysql({
     config: {
-        host: '127.0.0.1',
-        database: 'iftm_filmes',
-        user: 'root',
-        password: ''
-    }
-})
+        host: "127.0.0.1",
+        database: "iftm_filmes",
+        user: "root",
+        password: "",
+    },
+});
 
-app.get('/filmes/:pagina', async (req, res) => {
+app.get("/filmes/:pagina", async (req, res) => {
     let pagina = parseInt(req.params.pagina);
     let limite = 10;
     let offset = (pagina - 1) * limite;
 
-    let filmes = await bd.query(`SELECT * FROM filmes LIMIT ?, ?`, [offset, limite]);
+    let filmes = await bd.query(`SELECT * FROM filmes LIMIT ?, ?`, [
+        offset,
+        limite,
+    ]);
 
-    res.json(filmes);
-
-    await bd.end();
-});
-
-app.get('/filme/:id', async(req, res) => {
-    let id = req.params.id;
-    let filme = await bd.query(`SELECT * FROM filmes WHERE id = ?`, [id]);
-    
-    if (filme.length === 0) {
-        res.status(404).json({ mensagem: "Filme não encontrado! :(" });
+    if (filmes.length === 0) {
+        res.status(404).json({ mensagem: "Página não encontrado!" });
         return;
     }
-    res.json(filme);
 
+    res.json(filmes);
     await bd.end();
 });
 
-app.get('/filmes/busca/:palavra', async (req, res) => {
-    try {
-        let palavra = req.params.palavra;
-        let filmes = await bd.query(`
-            SELECT 
-                f.*,
-                g.nome as genero,
-                GROUP_CONCAT(DISTINCT a.nome) as atores
-            FROM filmes f
-            LEFT JOIN filmes_generos fg ON f.id = fg.filme_id
-            LEFT JOIN generos g ON fg.genero_id = g.id
-            LEFT JOIN atores_filmes af ON f.id = af.filme_id
-            LEFT JOIN atores a ON af.ator_id = a.id
-            WHERE 
-                f.titulo LIKE CONCAT('%', ?, '%')
-            GROUP BY f.id
-            ORDER BY f.nota DESC`, 
-            [palavra]
-        );
+app.get("/filme/:id", async (req, res) => {
+    let id = req.params.id;
+    let filme = await bd.query(`SELECT * FROM filmes WHERE id = ?`, [id]);
 
-        if (filmes.length === 0) {
-            res.status(404).json({ mensagem: "Nenhum filme encontrado" });
-            return;
-        }
-
-        res.json(filmes);
-    } catch (erro) {
-        res.status(500).json({ erro: "Erro na busca de filmes" });
-    } finally {
-        await bd.end();
+    if (filme.length === 0) {
+        res.status(404).json({ mensagem: "Filme não encontrado!" });
+        return;
     }
+
+    res.json(filme);
+    await bd.end();
 });
 
-app.get('/generos/:genero', async (req, res) => {
+app.get("/filmes/busca/:palavra", async (req, res) => {
+    let palavra = req.params.palavra;
+    let resultados = await bd.query(`
+        SELECT 
+            f.titulo AS filme,
+            f.sinopse AS sinopse,
+            g.titulo AS genero,
+            a.titulo AS ator
+        FROM filmes f
+        LEFT JOIN filmes_generos fg ON f.id = fg.filme_id
+        LEFT JOIN generos g ON fg.genero_id = g.id
+        LEFT JOIN atores_filmes af ON f.id = af.filme_id
+        LEFT JOIN atores a ON af.ator_id = a.id
+        WHERE 
+            f.titulo LIKE ? OR f.sinopse LIKE ? OR g.titulo LIKE ? OR a.titulo LIKE ?;`,
+        [`%${palavra}%`, `%${palavra}%`, `%${palavra}%`, `%${palavra}%`]);
+
+    if (resultados.length === 0) {
+        return res.status(404).json({ message: "Nenhum resultado encontrado!" });
+    }
+
+    res.json(resultados);
+    await bd.end();
+});
+
+app.get("/generos/:genero", async (req, res) => {
     let genero = req.params.genero;
     let filmes = await bd.query(`
         SELECT 
@@ -90,40 +89,34 @@ app.get('/generos/:genero', async (req, res) => {
         ORDER BY f.ano DESC`, [genero]);
 
     res.json(filmes);
-    
     await bd.end();
 });
 
-app.get('/ator/:id', async (req, res) => {
+app.get("/ator/:id", async (req, res) => {
     let id = req.params.id;
     let ator = await bd.query(`SELECT * FROM atores WHERE id = ?`, [id]);
 
     res.json(ator);
-
     await bd.end();
-})
+});
 
-app.get('/atores/busca/:palavra', async (req, res) => {
+app.get("/atores/busca/:palavra", async (req, res) => {
     let palavra = req.params.palavra;
-    let atores = await bd.query (`
+    let atores = await bd.query(`
         SELECT 
-          a.nome AS ator,
-          GROUP_CONCAT(f.titulo SEPARATOR ', ') AS filmes
-        FROM 
-          atores AS a
-        INNER JOIN 
-          atores_filmes AS af ON a.id = af.ator_id
-        INNER JOIN 
-          filmes AS f ON af.filme_id = f.id
-        WHERE 
-          a.nome LIKE CONCAT('%', ?, '%') OR 
-          f.titulo LIKE CONCAT('%', ?, '%')
-        GROUP BY 
-          a.id;`)
-  
-      res.json(results);
+            a.titulo AS ator, f.titulo AS filme
+        FROM atores a
+        JOIN atores_filmes af ON a.id = af.ator_id
+        JOIN filmes f ON f.id = af.filme_id
+        WHERE a.titulo LIKE ? OR f.titulo LIKE ?;`, [`%${palavra}%`, `%${palavra}%`]);
+    // %% é o coringa para buscar qualquer coisa antes e depois da palavra
 
-      await bd.end(); 
+    if (atores.length === 0) {
+        return res.status(404).json({ message: "Nenhum resultado encontrado!" });
+    }
+
+    res.json(atores);
+    await bd.end();
 });
 
 app.listen(porta, () => {
