@@ -122,3 +122,23 @@ app.get("/atores/busca/:palavra", async (req, res) => {
 app.listen(porta, () => {
     console.log(`Servidor rodando em http://127.0.0.1:${porta}`);
 });
+
+app.post("/atores", async (req, res) => {
+    let { titulo } = req.body;
+
+    if (!titulo || titulo.trim() === "") {
+        return res.status(400).json({ mensagem: `Digite o nome do ator para adicioná-lo.` });
+    } 
+
+    let ator_já_adicionado = await bd.query(
+        `SELECT * FROM atores WHERE titulo = ?`, [titulo]);
+    
+    if (ator_já_adicionado.length > 0) {
+        return res.status(400).json({ mensagem: `Ator já adicionado! ID: ${ator_já_adicionado[0].id}` });
+    }
+
+    let adicionar = await bd.query(
+        `INSERT INTO atores (titulo) VALUES (?)`,[titulo]);
+    await bd.end();
+    return res.status(201).json({mensagem: `Ator adicionado com sucesso! ID: ${adicionar.insertId}`,});
+});
