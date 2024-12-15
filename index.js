@@ -2,8 +2,8 @@ let cors = require("cors");
 let express = require("express");
 let mysql = require("serverless-mysql");
 
-const app = express();
-const porta = 3000;
+let app = express();
+let PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -20,64 +20,94 @@ let bd = mysql({
 app.get("/filmes/:pagina", async (req, res) => {
     let pagina = parseInt(req.params.pagina);
     let limite = 10;
-    let offset = (pagina - 1) * limite;
 
-    let filmes = await bd.query(`SELECT * FROM filmes LIMIT ?, ?`, [
-        offset,
-        limite,
-    ]);
+    if (isNaN(pagina) || pagina <= 0) {
+        return res.status(400).json({
+            mensagem: "Página inválida!"
+        });
+    }
 
-    if (filmes.length === 0) {
-        res.status(404).json({ mensagem: "Página não encontrado!" });
-        return;
+    let filmes = await bd.query(
+        `SELECT * FROM filmes LIMIT ?, ?`, [(pagina - 1) * limite, limite]);
+    if (!filmes.length) {
+        return res.status(404).json({
+            mensagem: "Página não encontrada!"
+        });
     }
 
     res.json(filmes);
-    await bd.end();
 });
 
 app.get("/filme/:id", async (req, res) => {
-    let id = req.params.id;
+    let id = parseInt(req.params.id);
+
+    if (isNaN(id) || id <= 0) {
+        return res.status(400).json({
+            mensagem: "ID inválido!"
+        });
+    }
+
     let filme = await bd.query(`SELECT * FROM filmes WHERE id = ?`, [id]);
 
-    if (filme.length === 0) {
-        res.status(404).json({ mensagem: "Filme não encontrado!" });
+    if (!filme.length) {
+        res.status(404).json({
+            mensagem: "Filme não encontrado!",
+        });
         return;
     }
 
     res.json(filme);
-    await bd.end();
 });
 
 app.get("/filmes/busca/:palavra", async (req, res) => {
     let palavra = req.params.palavra;
-    let resultados = await bd.query(`
-        SELECT 
-            f.titulo AS filme,
-            f.sinopse AS sinopse,
-            g.titulo AS genero,
-            a.titulo AS ator
-        FROM filmes f
-        LEFT JOIN filmes_generos fg ON f.id = fg.filme_id
-        LEFT JOIN generos g ON fg.genero_id = g.id
-        LEFT JOIN atores_filmes af ON f.id = af.filme_id
-        LEFT JOIN atores a ON af.ator_id = a.id
-        WHERE 
-            f.titulo LIKE ? OR f.sinopse LIKE ? OR g.titulo LIKE ? OR a.titulo LIKE ?;`,
-        [`%${palavra}%`, `%${palavra}%`, `%${palavra}%`, `%${palavra}%`]);
+    let resultados = await bd.query(
+        `SELECT id, titulo, ano, duracao, sinopse, nota, votos, imdb_id FROM filmes WHERE titulo LIKE ?`, [`%${palavra}%`]);
 
-    if (resultados.length === 0) {
-        return res.status(404).json({ message: "Nenhum resultado encontrado!" });
+    if (!resultados.length) {
+        return res.status(404).json({
+            mensagem: `Filme não encontrado.`
+        });
     }
 
-    res.json(resultados);
-    await bd.end();
+    let resultado = [];
+
+    for (let filme of resultados) {
+        let atores = await bd.query(`
+            SELECT a.titulo AS nome_ator
+            FROM atores a
+            JOIN atores_filmes af ON a.id = af.ator_id
+            WHERE af.filme_id = ?`, [filme.id]);
+
+        let generos = await bd.query(
+            `SELECT g.titulo AS genero
+             FROM generos g
+             JOIN filmes_generos fg ON g.id = fg.genero_id
+             WHERE fg.filme_id = ?`, [filme.id]
+        );
+
+        resultado.push({
+            filme: filme.titulo,
+            ano: filme.ano,
+            duracao: filme.duracao,
+            sinopse: filme.sinopse,
+            nota: filme.nota,
+            votos: filme.votos,
+            imdb_id: filme.imdb_id,
+            generos: generos.map(genero => genero.genero),
+            atores: atores.map(ator => ator.nome_ator)
+        });
+    }
+
+    res.status(200).json({
+        filmes: resultado
+    });
 });
 
 app.get("/generos/:genero", async (req, res) => {
     let genero = req.params.genero;
-    let filmes = await bd.query(`
-        SELECT 
+    let filmes = await bd.query(
+        `SELECT 
             f.id,
             f.titulo,
             f.ano,
@@ -94,7 +124,8 @@ app.get("/generos/:genero", async (req, res) => {
 
 app.get("/ator/:id", async (req, res) => {
     let id = req.params.id;
-    let ator = await bd.query(`SELECT * FROM atores WHERE id = ?`, [id]);
+    let ator = await bd.query(
+        `SELECT * FROM atores WHERE id = ?`, [id]);
 
     res.json(ator);
     await bd.end();
@@ -102,43 +133,142 @@ app.get("/ator/:id", async (req, res) => {
 
 app.get("/atores/busca/:palavra", async (req, res) => {
     let palavra = req.params.palavra;
-    let atores = await bd.query(`
+    let atores = await bd.query(
+        `
         SELECT 
             a.titulo AS ator, f.titulo AS filme
         FROM atores a
         JOIN atores_filmes af ON a.id = af.ator_id
         JOIN filmes f ON f.id = af.filme_id
-        WHERE a.titulo LIKE ? OR f.titulo LIKE ?;`, [`%${palavra}%`, `%${palavra}%`]);
+        WHERE a.titulo LIKE ? OR f.titulo LIKE ?;`,
+        [`%${palavra}%`, `%${palavra}%`]);
     // %% é o coringa para buscar qualquer coisa antes e depois da palavra
 
     if (atores.length === 0) {
-        return res.status(404).json({ message: "Nenhum resultado encontrado!" });
+        return res.status(404).json({
+            message: "Nenhum resultado encontrado!"
+        });
     }
 
     res.json(atores);
     await bd.end();
 });
 
-app.listen(porta, () => {
-    console.log(`Servidor rodando em http://127.0.0.1:${porta}`);
+app.listen(PORT, () => {
+    console.log(`Servidor rodando em http://127.0.0.1:${PORT}`);
 });
 
 app.post("/atores", async (req, res) => {
-    let { titulo } = req.body;
+    let {
+        titulo
+    } = req.body;
 
     if (!titulo || titulo.trim() === "") {
-        return res.status(400).json({ mensagem: `Digite o nome do ator para adicioná-lo.` });
-    } 
+        return res.status(400).json({
+            mensagem: `Digite o nome do ator para adicioná-lo.`
+        });
+    }
 
     let ator_já_adicionado = await bd.query(
         `SELECT * FROM atores WHERE titulo = ?`, [titulo]);
-    
+
     if (ator_já_adicionado.length > 0) {
-        return res.status(400).json({ mensagem: `Ator já adicionado! ID: ${ator_já_adicionado[0].id}` });
+        return res.status(400).json({
+            mensagem: `Ator já adicionado! 
+            ID: ${ator_já_adicionado[0].id}`
+        });
+    }
+
+    let adicionar = await bd.query(`INSERT INTO atores (titulo) VALUES (?)`, [titulo]);
+    await bd.end();
+    return res.status(201).json({
+        mensagem: `Ator adicionado com sucesso! 
+        ID: ${adicionar.insertId}`
+    });
+});
+
+app.post("/participacoes/:idAtor/:idFilme", async (req, res) => {
+    let {
+        idAtor
+    } = req.params;
+    let {
+        idFilme
+    } = req.params;
+
+    let ator = await bd.query(`SELECT id FROM atores WHERE id = ?`, [idAtor]);
+    if (ator.length === 0) {
+        return res.status(404).json({
+            mensagem: `Ator ${id} não encontrado.`
+        });
+    }
+
+    let filme = await bd.query(`SELECT id FROM filmes WHERE id = ?`, [idFilme]);
+    if (filme.length === 0) {
+        return res.status(404).json({
+            mensagem: `Filme ${id} não encontrado.`
+        });
+    }
+
+    let participacao = await bd.query(
+        `SELECT * FROM atores_filmes WHERE ator_id = ? AND filme_id = ?`,
+        [idAtor, idFilme]
+    );
+    if (participacao.length > 0) {
+        return res.status(409).json({
+            mensage: `Participação já existente. 
+            ID: ${participacao[0].id}`,
+        });
     }
 
     let adicionar = await bd.query(
-        `INSERT INTO atores (titulo) VALUES (?)`,[titulo]);
+        `INSERT INTO atores_filmes (ator_id, filme_id) VALUES (?, ?)`, [idAtor, idFilme]);
     await bd.end();
-    return res.status(201).json({mensagem: `Ator adicionado com sucesso! ID: ${adicionar.insertId}`,});
+
+    return res.status(200).json({
+        mensagem: `Participação adicionada. 
+        ID: ${adicionar.insertId}`
+    });
 });
+
+app.put("/atores/:id", async (req, res) => {
+    let id = req.params.id;
+    let {
+        titulo
+    } = req.body;
+
+    if (!titulo || titulo.trim() === "") {
+        return res.status(400).json({
+            mensagem: "Nome do ator não pode ser vazio."
+        });
+    }
+
+    let ator_existe = await bd.query(`SELECT * FROM atores WHERE id = ?`, [id]);
+    if (ator_existe.length === 0) {
+        return res.status(404).json({
+            mensagem: `Ator ${id} não encontrado.`
+        });
+    }
+
+    await bd.query(`UPDATE atores SET titulo = ? WHERE id = ?`, [titulo, id]);
+    return res.status(200).json({
+        mensagem: `Ator ${id} atualizado!`
+    });
+});
+
+app.delete("/atores/:id", async (req, res) => {
+    let id = req.params.id;
+    let ator_existe = await bd.query(`SELECT * FROM atores WHERE id = ?`, [id]);
+    if (ator_existe.length === 0) {
+        return res.status(404).json({
+            mensagem: `ID ${id} não encontrado.`
+        });
+    }
+
+    await bd.query(`DELETE FROM atores_filmes WHERE ator_id = ?`, [id]);
+
+    await bd.query(`DELETE FROM atores WHERE id = ?`, [id]);
+
+    return res.status(200).json({
+        mensagem: `Ator ${id} removido.`,
+    });
+})
